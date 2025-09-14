@@ -1,4 +1,4 @@
-import * as React from "react";
+import React, { useState, useRef } from "react";
 import {
   Table,
   TableBody,
@@ -6,121 +6,188 @@ import {
   TableContainer,
   TableHead,
   TableRow,
-  Paper,
-  Typography,
-  Box,
   TableFooter,
   TablePagination,
-  IconButton,
+  Checkbox,
+  Paper,
 } from "@mui/material";
-import KeyboardArrowLeft from "@mui/icons-material/KeyboardArrowLeft";
-import KeyboardArrowRight from "@mui/icons-material/KeyboardArrowRight";
-import Toolbar, { ToolbarProps } from "../Toolbar/Toolbar";
+import { ResizableBox } from "react-resizable";
+import Toolbar from "../Toolbar/Toolbar";
+import "react-resizable/css/styles.css";
 
-export interface TableHeader {
+export interface DataTableHeader {
   key: string;
   displayText: string;
-  width?: string | number;
   align?: "left" | "right" | "center";
+  width?: number; // Initial width
+  style?: React.CSSProperties;
 }
 
+export type SelectionMode = "none" | "single" | "multiple";
+
 export interface DataTableProps {
-  headers: TableHeader[];
-  data?: Record<string, React.ReactNode>[];
-  pageSize?: number;
-  rowSize?: "small" | "medium" | "large";
-  toolbarProps?: ToolbarProps;
-  onPageChange: (page: number) => void;
+  headers: DataTableHeader[];
+  data: Record<string, React.ReactNode>[];
   page: number;
+  pageSize: number;
   totalCount: number;
+  rowSize?: "small" | "medium" | "large";
+  selectionMode?: SelectionMode;
+  onPageChange: (page: number) => void;
+  onSelectionChange?: (selected: string[] | string | null) => void;
+  rowKey?: string;
+  toolbarProps?: React.ComponentProps<typeof Toolbar>;
+  dropdownOptions?: { label: string; onClick: () => void }[];
 }
 
 const DataTable: React.FC<DataTableProps> = ({
   headers,
-  data = [],
-  pageSize = 5,
-  rowSize = "medium",
-  toolbarProps,
-  onPageChange,
+  data,
   page,
+  pageSize,
   totalCount,
+  rowSize = "medium",
+  selectionMode = "none",
+  onPageChange,
+  onSelectionChange,
+  rowKey = "id",
+  toolbarProps,
 }) => {
-  const handleChangePage = (event: unknown, newPage: number) => {
-    onPageChange(newPage);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [columnWidths, setColumnWidths] = useState<number[]>(headers.map((h) => h.width || 150));
+
+  const handleRowClick = (id: string) => {
+    if (selectionMode === "none") return;
+
+    if (selectionMode === "single") {
+      const newSelection = selected[0] === id ? [] : [id];
+      setSelected(newSelection);
+      onSelectionChange?.(newSelection.length ? newSelection[0] : null);
+    }
+
+    if (selectionMode === "multiple") {
+      let newSelection = [...selected];
+      if (newSelection.includes(id)) {
+        newSelection = newSelection.filter((x) => x !== id);
+      } else {
+        newSelection.push(id);
+      }
+      setSelected(newSelection);
+      onSelectionChange?.(newSelection);
+    }
+  };
+
+  const isSelected = (id: string) => selected.includes(id);
+
+  const handleResize = (index: number, newWidth: number) => {
+    const newWidths = [...columnWidths];
+    newWidths[index] = newWidth;
+    setColumnWidths(newWidths);
   };
 
   return (
-    <Paper sx={{ width: "100%", overflow: "hidden" }}>
-      {/* Toolbar */}
+    <Paper>
       {toolbarProps && <Toolbar {...toolbarProps} />}
-
-      {/* Table */}
       <TableContainer>
-        <Table size={rowSize}>
-          <TableHead>
+        <Table
+          size={rowSize === "small" || rowSize === "medium" ? rowSize : "medium"}
+          sx={{ borderRadius: (theme) => theme.typography.pxToRem(20) }}
+        >
+          <TableHead sx={{ backgroundColor: "#f5f5f5", height: (theme) => theme.typography.pxToRem(56) }}>
             <TableRow>
-              {headers.map((header) => (
+              {selectionMode === "multiple" && <TableCell padding="checkbox" />}
+              {headers.map((h, index) => (
                 <TableCell
-                  key={header.key}
-                  align={header.align ?? "left"}
-                  style={{ width: header.width }}
+                  key={h.key}
+                  align={h.align || "left"}
+                  sx={{
+                    color: "#393643",
+                    fontFamily: "sans-serif",
+                    fontWeight: 600,
+                    padding: 0,
+                    ...h.style,
+                  }}
                 >
-                  {header.displayText}
+                  <ResizableBox
+                    width={columnWidths[index]}
+                    height={40}
+                    axis="x"
+                    resizeHandles={["e"]}
+                    onResizeStop={(_, { size }) => handleResize(index, size.width)}
+                    minConstraints={[50, 40]}
+                    maxConstraints={[500, 40]}
+                  >
+                    <div
+                      style={{
+                        width: "100%",
+                        height: "100%",
+                        display: "flex",
+                        alignItems: "center",
+                        paddingLeft: 8,
+                        boxSizing: "border-box",
+                      }}
+                    >
+                      {h.displayText}
+                    </div>
+                  </ResizableBox>
                 </TableCell>
               ))}
             </TableRow>
           </TableHead>
-
           <TableBody>
-            {data.length === 0 ? (
+            {data.length > 0 ? (
+              data.map((row, idx) => {
+                const id = (row[rowKey] as string) || `row-${idx}`;
+                return (
+                  <TableRow
+                    key={id}
+                    hover
+                    selected={isSelected(id)}
+                    onClick={() => handleRowClick(id)}
+                  >
+                    {selectionMode === "multiple" && (
+                      <TableCell padding="checkbox" sx={{ color: "rgba(125, 131, 152, 0.3)" }}>
+                        <Checkbox checked={isSelected(id)} sx={{ color: "rgba(125, 131, 152, 0.3)" }} />
+                      </TableCell>
+                    )}
+                    {headers.map((h, index) => (
+                      <TableCell
+                        key={h.key}
+                        align={h.align || "left"}
+                        sx={{
+                          width: columnWidths[index],
+                          maxWidth: columnWidths[index],
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                          color: "#393643",
+                          fontFamily: "sans-serif",
+                          fontSize: (theme) => theme.typography.pxToRem(14),
+                          ...h.style,
+                        }}
+                      >
+                        {row[h.key] || "-"}
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                );
+              })
+            ) : (
               <TableRow>
-                <TableCell colSpan={headers.length} align="center">
-                  <Typography variant="body2" color="textSecondary">
-                    No rows
-                  </Typography>
+                <TableCell colSpan={headers.length + 1} align="center">
+                  No rows
                 </TableCell>
               </TableRow>
-            ) : (
-              data.map((row, rowIndex) => (
-                <TableRow key={rowIndex}>
-                  {headers.map((header) => (
-                    <TableCell
-                      key={header.key}
-                      align={header.align ?? "left"}
-                    >
-                      {row[header.key]}
-                    </TableCell>
-                  ))}
-                </TableRow>
-              ))
             )}
           </TableBody>
-
-          {/* Footer with pagination */}
           <TableFooter>
             <TableRow>
               <TablePagination
                 count={totalCount}
                 page={page}
-                onPageChange={handleChangePage}
                 rowsPerPage={pageSize}
+                onPageChange={(_, newPage) => onPageChange(newPage)}
                 rowsPerPageOptions={[pageSize]}
-                ActionsComponent={({ page, onPageChange }) => (
-                  <Box display="flex" alignItems="center">
-                    <IconButton
-                      onClick={(e) => onPageChange(e, page - 1)}
-                      disabled={page === 0}
-                    >
-                      <KeyboardArrowLeft />
-                    </IconButton>
-                    <IconButton
-                      onClick={(e) => onPageChange(e, page + 1)}
-                      disabled={(page + 1) * pageSize >= totalCount}
-                    >
-                      <KeyboardArrowRight />
-                    </IconButton>
-                  </Box>
-                )}
               />
             </TableRow>
           </TableFooter>
